@@ -547,6 +547,40 @@ test("list prints entries straight from markdown files", async () => {
   expect(listed.stdout.toString()).toContain("  - src/a.ts");
 });
 
+
+test("list and chart prune stale entries mechanically — no manual prune needed", async () => {
+  const { workDir, capn } = workspace();
+  mkdirSync(join(workDir, "src"), { recursive: true });
+  writeFileSync(join(workDir, "src/a.ts"), "a\n");
+  writeFileSync(join(workDir, "src/b.ts"), "b\n");
+  expect(
+    (await capn(["chart", "Where is A?", "--files", "src/a.ts", "--details", "A lives here"])).exitCode
+  ).toBe(0);
+  expect(
+    (await capn(["chart", "Where is B?", "--files", "src/b.ts", "--details", "B lives here"])).exitCode
+  ).toBe(0);
+
+  // A's backing file changes: A is now stale.
+  writeFileSync(join(workDir, "src/a.ts"), "a changed\n");
+
+  // list prunes stale entries before printing.
+  const listed = await capn(["list"]);
+  expect(listed.exitCode, listed.stderr.toString()).toBe(0);
+  expect(listed.stdout.toString()).not.toContain("Where is A?");
+  expect(listed.stdout.toString()).toContain("Where is B?");
+  expect(existsSync(join(workDir, ".capn/entries", `${entryId("Where is A?")}.md`))).toBe(false);
+
+  // chart prunes stale siblings before charting.
+  writeFileSync(join(workDir, "src/b.ts"), "b changed\n");
+  expect(
+    (await capn(["chart", "Where is C?", "--files", "src/a.ts", "--details", "C lives here"])).exitCode
+  ).toBe(0);
+  expect(existsSync(join(workDir, ".capn/entries", `${entryId("Where is B?")}.md`))).toBe(false);
+  expect(existsSync(join(workDir, ".capn/entries", `${entryId("Where is C?")}.md`))).toBe(true);
+  const listed2 = await capn(["list"]);
+  expect(listed2.stdout.toString()).toContain("Where is C?");
+});
+
 test("context prints the exact static contract", async () => {
   const { workDir, capn } = workspace();
   mkdirSync(join(workDir, ".capn"));

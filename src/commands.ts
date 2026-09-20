@@ -16,6 +16,7 @@ import {
   writeMap,
 } from "./entries.ts";
 import {
+  capnDir,
   configPath,
   ensureCapn,
   ensureGitignore,
@@ -94,6 +95,11 @@ export async function chart(args: string[]) {
     fail("capn chart questions cannot contain newlines");
   }
   const root = findProjectRoot(process.cwd());
+  // Chart-time hygiene: stale entries are deleted silently before every chart,
+  // so the store never accumulates dead answers between recalls.
+  if (existsSync(capnDir(root))) {
+    await prune(root, false);
+  }
   const hashedFiles: Record<string, string> = {};
   for (const file of files) {
     const { absolute, relativePath } = relativeFile(root, file);
@@ -228,8 +234,14 @@ ${details ? `Details:\n${details}\n` : ""}
 `;
 }
 
-export function listEntries() {
+export async function listEntries() {
   const root = findProjectRoot(process.cwd());
+  // Read-surface hygiene: list prunes stale entries first, so it never shows
+  // answers whose backing files changed. Agents never need to remember to
+  // prune — every read and write surface maintains the store.
+  if (existsSync(capnDir(root))) {
+    await prune(root, false);
+  }
   process.stdout.write(readEntries(root).map(formatEntry).join("\n"));
 }
 

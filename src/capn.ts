@@ -43,7 +43,7 @@ export async function main(args = process.argv.slice(2)) {
   } else if (command === "unchart") {
     await deleteEntry(commandArgs[0]);
   } else if (command === "list") {
-    listEntries();
+    await listEntries();
   } else if (command === "context") {
     context();
   } else if (command === "init") {
