@@ -11,27 +11,27 @@
     "@types/node": "^26.1.0",
     "ultracite": "7.8.4"
   },
-  "name": "capn-hook",
+  "name": "@paragon-ux/capn-hook",
   "scripts": {
     "build": "bun build src/run.ts --target=node --packages=external --outfile=dist/capn.js",
     "changeset": "changeset",
     "check": "ultracite check",
     "fix": "ultracite fix",
     "prepack": "bun run build",
-    "test": "bun test"
+    "test": "bun test --timeout 30000"
   },
   "type": "module",
-  "version": "0.2.2",
-  "description": "Dynamic memory for coding agents: chart discoveries as you explore, cache-bust when files change",
+  "version": "1.0.0",
+  "description": "Deterministic chart/ask memory for coding agents \u2014 lexical-only fork of capn-hook: BM25 recall, no embeddings, no hooks",
   "license": "MIT",
-  "author": "Cyrus (CyrusNuevoDia)",
+  "author": "paragon-ux (fork of CyrusNuevoDia/capn-hook)",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/CyrusNuevoDia/capn-hook.git"
+    "url": "git+https://github.com/paragon-ux/capn-hook.git"
   },
-  "homepage": "https://github.com/CyrusNuevoDia/capn-hook#readme",
+  "homepage": "https://github.com/paragon-ux/capn-hook#readme",
   "bugs": {
-    "url": "https://github.com/CyrusNuevoDia/capn-hook/issues"
+    "url": "https://github.com/paragon-ux/capn-hook/issues"
   },
   "keywords": [
     "memory",
@@ -56,12 +56,5 @@
   },
   "bin": {
     "capn": "bin/capn"
-  },
-  "trustedDependencies": [
-    "node-llama-cpp",
-    "tree-sitter-go",
-    "tree-sitter-javascript",
-    "tree-sitter-python",
-    "tree-sitter-rust"
-  ]
+  }
 }

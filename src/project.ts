@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 import { execaSync } from "execa";
 import { fail } from "./util.ts";
@@ -79,11 +79,33 @@ export function relativeFile(root: string, file: string) {
   return { absolute, relativePath };
 }
 
+const trailingNewlinePattern = /\n$/;
+
+/**
+ * Append the managed `.capn/` gitignore line (idempotent). Moved here from the
+ * removed hooks module — gitignore hygiene is a project concern, not a hook.
+ */
+export function ensureGitignore(root: string) {
+  const path = resolve(root, ".gitignore");
+  const body = existsSync(path) ? readFileSync(path, "utf8") : "";
+  const staleManaged = [".capn/qmd/", ".capn/journal/", ".capn/MIND.md"];
+  const managed = [".capn/"];
+  const lines =
+    body.length === 0
+      ? []
+      : body
+          .replace(trailingNewlinePattern, "")
+          .split("\n")
+          .filter(
+            (line) => !(managed.includes(line) || staleManaged.includes(line))
+          );
+  lines.push(...managed);
+  writeFileSync(path, `${lines.join("\n")}\n`);
+}
+
 export function config(root: string) {
-  try {
-    const parsed = JSON.parse(readFileSync(configPath(root), "utf8"));
-    return { embedding: parsed.embedding !== false };
-  } catch {
-    return { embedding: true };
-  }
+  // Lexical-only fork: embedding mode has been removed entirely. The config
+  // field is written for readability/compat, but recall is always BM25/FTS5
+  // lexical — never the QMD hybrid path.
+  return { embedding: false };
 }

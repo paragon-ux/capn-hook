@@ -16,15 +16,9 @@ import {
   writeMap,
 } from "./entries.ts";
 import {
-  ensureGitignore,
-  installClaudeHooks,
-  installCodexHooks,
-  installPostCommit,
-} from "./hooks.ts";
-import {
-  config,
   configPath,
   ensureCapn,
+  ensureGitignore,
   entryPath,
   findProjectRoot,
   qmdDBPath,
@@ -32,8 +26,6 @@ import {
 } from "./project.ts";
 import { hitId, openStore, syncIndex } from "./store.ts";
 import { fail, sha256 } from "./util.ts";
-
-type InitOptions = { embedding?: boolean; git: boolean };
 
 const chartSyntax =
   'capn chart "<question>" --files <files> [--details "<extra context>"]';
@@ -127,7 +119,7 @@ export async function chart(args: string[]) {
     at: new Date().toISOString(),
   });
   writeMap(root);
-  await syncIndex(root, config(root).embedding, true);
+  await syncIndex(root, true);
   process.stdout.write(`charted ${id}\n`);
 }
 
@@ -149,9 +141,7 @@ export async function ask(args: string[]) {
   const entries = new Map(readEntries(root).map((entry) => [entry.id, entry]));
   const store = await openStore(root);
   try {
-    const hits = await (config(root).embedding
-      ? store.search({ query: question, collection: "capn", limit: 5 })
-      : store.searchLex(question, { collection: "capn", limit: 5 }));
+    const hits = await store.searchLex(question, { collection: "capn", limit: 5 });
     const found = hits
       .map((hit) => {
         const id = hitId(hit);
@@ -262,43 +252,16 @@ The files ARE the answer; --details is only for extras like line numbers or gotc
 `);
 }
 
-function parseInitOptions(args: string[]): InitOptions {
-  const { values } = parseArgs({
-    args,
-    allowPositionals: true,
-    options: {
-      embedding: { type: "boolean" },
-      git: { type: "boolean" },
-      "no-embedding": { type: "boolean" },
-    },
-    strict: false,
-  });
-  let embedding: boolean | undefined;
-  if (values["no-embedding"] === true) {
-    embedding = false;
-  } else if (values.embedding === true) {
-    embedding = true;
-  }
-  return { embedding, git: values.git === true };
+function writeConfig(root: string) {
+  // Lexical-only fork: the embedding option is gone; the config always records
+  // the deterministic mode so tooling (and older configs) normalize on read.
+  writeFileSync(configPath(root), `${JSON.stringify({ embedding: false }, null, 2)}\n`);
 }
 
-function writeConfig(root: string, options: InitOptions) {
-  const existing = existsSync(configPath(root))
-    ? config(root)
-    : { embedding: true };
-  const embedding = options.embedding ?? existing.embedding;
-  writeFileSync(
-    configPath(root),
-    `${JSON.stringify({ embedding }, null, 2)}\n`
-  );
-  return embedding;
-}
-
-export async function init(args: string[]) {
-  const options = parseInitOptions(args);
+export async function init(_args: string[]) {
   const root = findProjectRoot(process.cwd());
   ensureCapn(root);
-  const embedding = writeConfig(root, options);
+  writeConfig(root);
   ensureGitignore(root);
   const store = await openStore(root);
   const capnContext =
@@ -315,23 +278,10 @@ export async function init(args: string[]) {
     ) {
       await store.addContext("capn", "/", capnContext);
     }
-    installClaudeHooks(root);
-    installCodexHooks(root);
-    if (options.git) {
-      installPostCommit(root);
-    }
     await store.update({});
-    if (embedding) {
-      process.stdout.write(
-        "embedding enabled; qmd may download its model on first run\n"
-      );
-      await store.embed({});
-    }
   } finally {
     await store.close();
   }
   writeMap(root);
-  process.stdout.write(
-    `capn initialized: storage, qmd capn collection, hooks${options.git ? ", post-commit" : ""}\n`
-  );
+  process.stdout.write("capn initialized: storage + qmd capn collection (lexical recall)\n");
 }

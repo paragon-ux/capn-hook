@@ -1,7 +1,6 @@
 import { afterAll, test as bunTest, expect } from "bun:test";
 import { createHash } from "node:crypto";
 import {
-  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -21,8 +20,6 @@ const qmdPath = resolve(
   "../node_modules/@tobilu/qmd/dist/cli/qmd.js"
 );
 const isoDatePrefixPattern = /at: \d{4}-\d{2}-\d{2}T/;
-const contextHook = { command: "/usr/bin/env capn context" };
-const splitContextHook = { command: "/usr/bin/env", args: ["capn", "context"] };
 
 const contextContract = `<capn-hook>
 This project keeps a chart of past discoveries: questions earlier sessions answered, and the files in this repo backing each answer.
@@ -48,7 +45,15 @@ const workDirs: string[] = [];
 
 afterAll(() => {
   for (const dir of workDirs) {
-    rmSync(dir, { recursive: true, force: true });
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+        break;
+      } catch {
+        if (attempt === 9) throw new Error(`could not clean workspace: ${dir}`);
+        Bun.sleepSync(500);
+      }
+    }
   }
 });
 
@@ -103,7 +108,7 @@ function workspace() {
   }
 
   async function initNoEmbedding() {
-    const result = await capn(["init", "--no-embedding"]);
+    const result = await capn(["init"]);
     expect(result.exitCode, result.stderr.toString()).toBe(0);
   }
 
@@ -153,7 +158,7 @@ test("prints updated usage for help and rejects missing commands", async () => {
   const help = await capn(["--help"]);
   expect(help.exitCode).toBe(0);
   expect(help.stdout.toString()).toBe(`Usage:
-  capn init [--git] [--embedding|--no-embedding]
+  capn init
   capn context
   capn ask "<question>"
   capn chart "<question>" --files <a,b> [--details "<extra context>"]
@@ -588,7 +593,7 @@ test("context does not leak stored content or prune", async () => {
   expect(existsSync(join(workDir, ".capn/entries", `${id}.md`))).toBe(true);
 });
 
-test("init is idempotent and installs QMD SDK storage, hooks, gitignore, config, and post-commit pruning", async () => {
+test("init is idempotent: QMD storage, gitignore, config — and no agent hooks", async () => {
   const { workDir, capn, run } = workspace();
   expect((await run(["git", "init", "-q"])).exitCode).toBe(0);
   expect((await run(["git", "config", "user.email", "t@t.co"])).exitCode).toBe(
@@ -624,9 +629,9 @@ test("init is idempotent and installs QMD SDK storage, hooks, gitignore, config,
     "dist/\n.capn/qmd/\n.capn/journal/\n.capn/MIND.md\n"
   );
 
-  const first = await capn(["init", "--git", "--no-embedding"]);
+  const first = await capn(["init"]);
   expect(first.exitCode, first.stderr.toString()).toBe(0);
-  const second = await capn(["init", "--git", "--no-embedding"]);
+  const second = await capn(["init"]);
   expect(second.exitCode, second.stderr.toString()).toBe(0);
   expect(first.stdout.toString()).toContain("qmd capn collection");
 
@@ -653,75 +658,20 @@ test("init is idempotent and installs QMD SDK storage, hooks, gitignore, config,
     gitignoreLines.filter((line) => line === ".capn/MIND.md")
   ).toHaveLength(0);
 
-  const claudeSettings = readJSON(join(workDir, ".claude/settings.json"));
-  const settings = readJSON(join(workDir, ".claude/settings.local.json"));
-  const codexHooks = readJSON(join(workDir, ".codex/hooks.json"));
-  const sessionCommands = claudeSettings.hooks.SessionStart.flatMap(
-    (group: { hooks: { command: string }[] }) =>
-      group.hooks.map((hook) => hook.command)
-  );
-  const sessionHooks = claudeSettings.hooks.SessionStart.flatMap(
-    (group: { hooks: { args?: string[]; command: string }[] }) => group.hooks
-  );
-  const stopCommands = settings.hooks.Stop.flatMap(
-    (group: { hooks: { command: string }[] }) =>
-      group.hooks.map((hook) => hook.command)
-  );
-  expect(
-    sessionHooks.filter(
-      (hook: { args?: string[]; command: string }) =>
-        hook.command === contextHook.command && hook.args === undefined
-    )
-  ).toHaveLength(1);
-  expect(sessionCommands).not.toContain("capn context");
-  expect(
-    stopCommands.filter((command: string) => command.includes("capn "))
-  ).toHaveLength(0);
-  expect(stopCommands).toContain("echo old");
-  expect(claudeSettings.model).toBe("sonnet");
-  expect(settings.model).toBeUndefined();
-  expect(settings.hooks.SessionStart).toBeUndefined();
-  expect(settings.statusLine).toEqual({
-    type: "command",
-    command: "echo status",
+  // The lexical-only fork installs no agent hooks and never edits existing ones.
+  expect(readJSON(join(workDir, ".claude/settings.json"))).toEqual({
+    model: "sonnet",
   });
-  const codexSessionCommands = codexHooks.hooks.SessionStart.flatMap(
-    (group: { hooks: { command: string }[] }) =>
-      group.hooks.map((hook) => hook.command)
-  );
-  const codexSessionHooks = codexHooks.hooks.SessionStart.flatMap(
-    (group: { hooks: { args?: string[]; command: string }[] }) => group.hooks
-  );
-  const codexStopCommands = codexHooks.hooks.Stop.flatMap(
-    (group: { hooks: { command: string }[] }) =>
-      group.hooks.map((hook) => hook.command)
-  );
-  expect(
-    codexSessionHooks.filter(
-      (hook: { args?: string[]; command: string }) =>
-        hook.command === contextHook.command && hook.args === undefined
-    )
-  ).toHaveLength(1);
-  expect(codexSessionCommands).not.toContain("capn context");
-  expect(
-    codexStopCommands.filter((command: string) => command.includes("capn "))
-  ).toHaveLength(0);
-  expect(codexStopCommands).toContain("echo codex old");
-
-  const postCommit = readFileSync(
-    join(workDir, ".git/hooks/post-commit"),
-    "utf8"
-  );
-  expect(postCommit).toContain("capn prune");
-
-  const binDir = join(workDir, "bin");
-  mkdirSync(binDir);
-  const capnShim = join(binDir, "capn");
-  writeFileSync(
-    capnShim,
-    `#!/usr/bin/env sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(capnPath)} "$@"\n`
-  );
-  chmodSync(capnShim, 0o755);
+  expect(readJSON(join(workDir, ".claude/settings.local.json"))).toEqual({
+    statusLine: { type: "command", command: "echo status" },
+    hooks: { Stop: [{ hooks: [{ type: "command", command: "echo old" }] }] },
+  });
+  expect(readJSON(join(workDir, ".codex/hooks.json"))).toEqual({
+    hooks: {
+      Stop: [{ hooks: [{ type: "command", command: "echo codex old" }] }],
+    },
+  });
+  expect(existsSync(join(workDir, ".git/hooks/post-commit"))).toBe(false);
 
   mkdirSync(join(workDir, "src"), { recursive: true });
   writeFileSync(join(workDir, "src/a.ts"), "export const x = 1\n");
@@ -745,117 +695,45 @@ test("init is idempotent and installs QMD SDK storage, hooks, gitignore, config,
   });
   writeFileSync(join(workDir, "src/a.ts"), "export const x = 2\n");
 
-  expect(
-    (
-      await run(["git", "add", "-A"], workDir, {
-        PATH: `${binDir}:${process.env.PATH ?? ""}`,
-      })
-    ).exitCode
-  ).toBe(0);
-  const commit = await run(["git", "commit", "-m", "x"], workDir, {
-    PATH: `${binDir}:${process.env.PATH ?? ""}`,
-  });
-  expect(commit.exitCode, commit.stderr.toString()).toBe(0);
+  // Staleness is content-hash driven, not hook driven: a manual prune removes
+  // the entry once its backing file changed.
+  const pruned = await capn(["prune"]);
+  expect(pruned.exitCode, pruned.stderr.toString()).toBe(0);
+  expect(pruned.stdout.toString()).toContain("pruned 1 stale");
   expect(readJSON(join(workDir, ".capn/map.json"))).toEqual({});
   expect(
     existsSync(join(workDir, ".capn/entries", `${entryId("Where is X?")}.md`))
   ).toBe(false);
 });
 
-test("init migrates old Stop nudge hooks without disturbing unrelated Stop hooks", async () => {
-  const { workDir, initNoEmbedding } = workspace();
-  const oldNudgeGroup = {
-    hooks: [{ type: "command", command: "capn nudge" }],
-  };
-  const unrelatedStopGroup = {
-    hooks: [{ type: "command", command: "echo done" }],
-  };
-  const unrelatedStopGroupJSON = JSON.stringify(unrelatedStopGroup);
-
+test("init never touches pre-existing agent hook configuration", async () => {
+  const { workDir, capn } = workspace();
+  const claudePath = join(workDir, ".claude/settings.json");
+  const settingsLocalPath = join(workDir, ".claude/settings.local.json");
+  const codexPath = join(workDir, ".codex/hooks.json");
   mkdirSync(join(workDir, ".claude"), { recursive: true });
-  writeFileSync(
-    join(workDir, ".claude/settings.json"),
-    JSON.stringify({
-      hooks: {
-        SessionStart: [
-          { hooks: [{ type: "command", command: "capn context" }] },
-        ],
-        Stop: [oldNudgeGroup, unrelatedStopGroup],
-      },
-    })
-  );
-  writeFileSync(
-    join(workDir, ".claude/settings.local.json"),
-    JSON.stringify({
-      hooks: {
-        SessionStart: [{ hooks: [{ type: "command", ...splitContextHook }] }],
-        Stop: [oldNudgeGroup, unrelatedStopGroup],
-      },
-    })
-  );
   mkdirSync(join(workDir, ".codex"), { recursive: true });
-  writeFileSync(
-    join(workDir, ".codex/hooks.json"),
-    JSON.stringify({
-      hooks: {
-        SessionStart: [
-          { hooks: [{ type: "command", command: "capn context" }] },
-          { hooks: [{ type: "command", ...splitContextHook }] },
-        ],
-        Stop: [oldNudgeGroup, unrelatedStopGroup],
-      },
-    })
-  );
+  const claudeBefore = JSON.stringify({
+    hooks: {
+      SessionStart: [{ hooks: [{ type: "command", command: "capn context" }] }],
+    },
+  });
+  const settingsLocalBefore = JSON.stringify({
+    hooks: { Stop: [{ hooks: [{ type: "command", command: "echo done" }] }] },
+  });
+  const codexBefore = JSON.stringify({
+    hooks: { Stop: [{ hooks: [{ type: "command", command: "echo codex" }] }] },
+  });
+  writeFileSync(claudePath, claudeBefore);
+  writeFileSync(settingsLocalPath, settingsLocalBefore);
+  writeFileSync(codexPath, codexBefore);
 
-  await initNoEmbedding();
-  await initNoEmbedding();
+  await capn(["init"]);
+  await capn(["init"]);
 
-  const claudeSettings = readJSON(join(workDir, ".claude/settings.json"));
-  const settings = readJSON(join(workDir, ".claude/settings.local.json"));
-  const codexHooks = readJSON(join(workDir, ".codex/hooks.json"));
-  const sessionCommands = claudeSettings.hooks.SessionStart.flatMap(
-    (group: { hooks: { command: string }[] }) =>
-      group.hooks.map((hook) => hook.command)
-  );
-  const sessionHooks = claudeSettings.hooks.SessionStart.flatMap(
-    (group: { hooks: { args?: string[]; command: string }[] }) => group.hooks
-  );
-  const codexSessionCommands = codexHooks.hooks.SessionStart.flatMap(
-    (group: { hooks: { command: string }[] }) =>
-      group.hooks.map((hook) => hook.command)
-  );
-  const codexSessionHooks = codexHooks.hooks.SessionStart.flatMap(
-    (group: { hooks: { args?: string[]; command: string }[] }) => group.hooks
-  );
-
-  expect(
-    sessionHooks.filter(
-      (hook: { args?: string[]; command: string }) =>
-        hook.command === contextHook.command && hook.args === undefined
-    )
-  ).toHaveLength(1);
-  expect(sessionCommands).not.toContain("capn context");
-  expect(sessionCommands).not.toContain(splitContextHook.command);
-  expect(
-    codexSessionHooks.filter(
-      (hook: { args?: string[]; command: string }) =>
-        hook.command === contextHook.command && hook.args === undefined
-    )
-  ).toHaveLength(1);
-  expect(codexSessionCommands).not.toContain("capn context");
-  expect(codexSessionCommands).not.toContain(splitContextHook.command);
-  expect(settings.hooks.SessionStart).toBeUndefined();
-  expect(claudeSettings.hooks.Stop).toHaveLength(1);
-  expect(settings.hooks.Stop).toHaveLength(1);
-  expect(codexHooks.hooks.Stop).toHaveLength(1);
-  expect(JSON.stringify(claudeSettings.hooks.Stop[0])).toBe(
-    unrelatedStopGroupJSON
-  );
-  expect(JSON.stringify(settings.hooks.Stop[0])).toBe(unrelatedStopGroupJSON);
-  expect(JSON.stringify(codexHooks.hooks.Stop[0])).toBe(unrelatedStopGroupJSON);
-  expect(JSON.stringify(claudeSettings)).not.toContain("capn nudge");
-  expect(JSON.stringify(settings)).not.toContain("capn nudge");
-  expect(JSON.stringify(codexHooks)).not.toContain("capn nudge");
+  expect(readFileSync(claudePath, "utf8")).toBe(claudeBefore);
+  expect(readFileSync(settingsLocalPath, "utf8")).toBe(settingsLocalBefore);
+  expect(readFileSync(codexPath, "utf8")).toBe(codexBefore);
 });
 
 test("capn qmd storage coexists with an existing host qmd project", async () => {

@@ -1,6 +1,8 @@
-# Installing capn-hook (for agents)
+# Installing @paragon-ux/capn-hook (for agents)
 
-You are being asked to install capn-hook — dynamic memory for coding agents — into the project you're currently working in. Follow these steps yourself; don't just print them for the human.
+You are being asked to install capn-hook — deterministic chart/ask memory for coding
+agents — into the project you're currently working in. Follow these steps yourself;
+don't just print them for the human.
 
 ## 1. Check if capn is already installed
 
@@ -8,59 +10,39 @@ You are being asked to install capn-hook — dynamic memory for coding agents �
 command -v capn
 ```
 
-If this prints a path, skip to step 4 — capn-hook is already installed on this machine, you just need to wire it into the current project.
+If this prints a path, skip to step 4.
 
 ## 2. Install the CLI
 
-Prefer the published npm package:
-
 ```sh
-npm install -g capn-hook
+npm install -g @paragon-ux/capn-hook
 ```
 
-Or install it with Bun:
+Or with Bun:
 
 ```sh
-bun install -g capn-hook
+bun install -g @paragon-ux/capn-hook
 ```
 
-If npm does not have the needed version yet, use the source checkout:
+## 3. Build and link from source (only if not installed from npm)
 
 ```sh
-git clone https://github.com/CyrusNuevoDia/capn-hook ~/.local/share/capn-hook
+git clone https://github.com/paragon-ux/capn-hook ~/.local/share/capn-hook
 cd ~/.local/share/capn-hook
+just install
 ```
 
-If that clone location is already taken by a different checkout, or the human tells you capn-hook lives somewhere else on this machine, `cd` there instead of cloning.
-
-## 3. Build and link the CLI from source
-
-```sh
-just install        # or: CAPN_BIN_DIR=/some/path-on-PATH just install
-```
-
-Requires [bun](https://bun.sh). Skip this source-link step if `npm install -g capn-hook` or `bun install -g capn-hook` worked. Do not use `bun link` — it does not put `capn` on PATH; `just install` creates the reliable source-checkout symlink.
-
-Confirm it worked:
-
-```sh
-command -v capn
-```
+Requires [bun](https://bun.sh). Do not use `bun link` — it does not put `capn` on PATH.
 
 ## 4. Initialize the target project
 
-`cd` back to the project you're actually installing capn-hook into (not the capn-hook checkout), then:
-
 ```sh
-capn init            # sets up .capn/, capn's QMD index, Claude Code hooks, and Codex hooks
-capn init --git      # same, plus a post-commit hook that prunes stale entries
+capn init
 ```
 
-Use `capn init --git` if the target project is a git repo. Add `--no-embedding` to either form if you want deterministic BM25-only search and to skip the ~2GB one-time model download:
-
-```sh
-capn init --no-embedding
-```
+Sets up `.capn/`, the QMD BM25 index, and the `.capn/` gitignore line. **No hooks are
+installed and no flags are needed** — recall is always deterministic BM25 lexical
+search; the embedding path does not exist in this fork.
 
 ## 5. Verify
 
@@ -68,10 +50,9 @@ capn init --no-embedding
 capn context
 ```
 
-should print the ask-first charting contract. Also check that:
+should print the ask-first charting contract. Also check that `.capn/` exists in the
+target project and `.capn/` is gitignored.
 
-- `.claude/settings.json` in the target project now has `SessionStart → /usr/bin/env capn context`
-- `.codex/hooks.json` in the target project now has `SessionStart → /usr/bin/env capn context`
-- `.capn/` exists in the target project and `.capn/` is gitignored
-
-capn-hook is now live in this project. See [README.md](README.md) for the full command reference (`capn init`, `capn context`, `capn ask`, `capn chart`, `capn unchart`, `capn bust`, `capn prune`, `capn list`).
+capn-hook is now live in this project. See [README.md](README.md) for the full command
+reference (`capn init`, `capn context`, `capn ask`, `capn chart`, `capn unchart`,
+`capn bust`, `capn prune`, `capn list`).

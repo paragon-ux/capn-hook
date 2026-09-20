@@ -56,7 +56,7 @@ export async function openStore(root: string) {
   });
 }
 
-export async function syncIndex(root: string, embed = false, warn = false) {
+export async function syncIndex(root: string, warn = false) {
   if (!existsSync(qmdDir(root))) {
     if (warn) {
       process.stderr.write(
@@ -68,9 +68,6 @@ export async function syncIndex(root: string, embed = false, warn = false) {
   const store = await openStore(root);
   try {
     await store.update({});
-    if (embed) {
-      await store.embed({});
-    }
   } finally {
     await store.close();
   }

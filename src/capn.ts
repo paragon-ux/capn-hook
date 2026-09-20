@@ -11,7 +11,7 @@ import {
 
 export function usage() {
   return `Usage:
-  capn init [--git] [--embedding|--no-embedding]
+  capn init
   capn context
   capn ask "<question>"
   capn chart "<question>" --files <a,b> [--details "<extra context>"]
