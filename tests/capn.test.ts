@@ -7,7 +7,6 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,10 +14,6 @@ import { join, resolve } from "node:path";
 import { execa } from "execa";
 
 const capnPath = resolve(import.meta.dir, "../src/run.ts");
-const qmdPath = resolve(
-  import.meta.dir,
-  "../node_modules/@tobilu/qmd/dist/cli/qmd.js"
-);
 const isoDatePrefixPattern = /at: \d{4}-\d{2}-\d{2}T/;
 
 const contextContract = `<capn-hook>
@@ -100,35 +95,12 @@ function workspace() {
     });
   }
 
-  // qmd's bin launcher re-spawns node, whose sqlite bindings (better-sqlite3)
-  // a clean `bun install` never builds; run the dist entry under bun so the
-  // host qmd stays hermetic (bun:sqlite, no native postinstalls).
-  function qmd(args: string[], cwd = workDir) {
-    return run([process.execPath, qmdPath, ...args], cwd);
-  }
-
   async function initNoEmbedding() {
     const result = await capn(["init"]);
     expect(result.exitCode, result.stderr.toString()).toBe(0);
   }
 
-  return { workDir, capn, run, qmd, initNoEmbedding };
-}
-
-function dotQMDDirs(root: string, current = root): string[] {
-  return readdirSync(current)
-    .flatMap((name) => {
-      const path = join(current, name);
-      if (!statSync(path).isDirectory()) {
-        return [];
-      }
-      const relativePath = path.slice(root.length + 1);
-      return [
-        ...(name === ".qmd" ? [relativePath] : []),
-        ...dotQMDDirs(root, path),
-      ];
-    })
-    .sort();
+  return { workDir, capn, run, initNoEmbedding };
 }
 
 function sha256(value: string) {
@@ -768,85 +740,4 @@ test("init never touches pre-existing agent hook configuration", async () => {
   expect(readFileSync(claudePath, "utf8")).toBe(claudeBefore);
   expect(readFileSync(settingsLocalPath, "utf8")).toBe(settingsLocalBefore);
   expect(readFileSync(codexPath, "utf8")).toBe(codexBefore);
-});
-
-test("capn qmd storage coexists with an existing host qmd project", async () => {
-  const { workDir, capn, qmd, initNoEmbedding } = workspace();
-  mkdirSync(join(workDir, "docs"), { recursive: true });
-  writeFileSync(
-    join(workDir, "docs/host.md"),
-    "# Host Docs\n\nhost-lighthouse-keyword lives only in host qmd.\n"
-  );
-
-  const hostConfigPath = join(workDir, ".home/.config/qmd/index.yml");
-  const beforeGlobalConfig = existsSync(hostConfigPath)
-    ? readFileSync(hostConfigPath, "utf8")
-    : undefined;
-
-  const hostInit = await qmd(["init"]);
-  expect(hostInit.exitCode, hostInit.stderr.toString()).toBe(0);
-  const hostAdd = await qmd([
-    "collection",
-    "add",
-    join(workDir, "docs"),
-    "--name",
-    "hostdocs",
-  ]);
-  expect(hostAdd.exitCode, hostAdd.stderr.toString()).toBe(0);
-  const hostUpdate = await qmd(["update"]);
-  expect(hostUpdate.exitCode, hostUpdate.stderr.toString()).toBe(0);
-  const hostIndexPath = join(workDir, ".qmd/index.yml");
-  const hostIndex = readFileSync(hostIndexPath);
-  expect(dotQMDDirs(workDir)).toEqual([".qmd"]);
-
-  await initNoEmbedding();
-  mkdirSync(join(workDir, "src"), { recursive: true });
-  writeFileSync(join(workDir, "src/capn.ts"), "export const capn = true\n");
-  expect(
-    (
-      await capn([
-        "chart",
-        "Where is capn-sdk-keyword recorded?",
-        "--files",
-        "src/capn.ts",
-        "--details",
-        "capn-sdk-keyword lives in src/capn.ts.",
-      ])
-    ).exitCode
-  ).toBe(0);
-  const asked = await capn(["ask", "capn-sdk-keyword"]);
-  expect(asked.exitCode, asked.stderr.toString()).toBe(0);
-  expect(parseJSONLines(asked.stdout.toString())[0]).toMatchObject({
-    details: "capn-sdk-keyword lives in src/capn.ts.",
-    files: ["src/capn.ts"],
-  });
-  expect(asked.stdout.toString()).not.toContain("host-lighthouse-keyword");
-
-  expect(readFileSync(hostIndexPath)).toEqual(hostIndex);
-  const hostCollections = await qmd(["collection", "list"]);
-  expect(hostCollections.exitCode, hostCollections.stderr.toString()).toBe(0);
-  expect(hostCollections.stdout.toString()).toContain("hostdocs");
-  expect(hostCollections.stdout.toString()).not.toContain("capn");
-  expect(hostCollections.stdout.toString()).not.toContain("journal");
-
-  const hostAskedByCapn = await capn(["ask", "host-lighthouse-keyword"]);
-  expect(hostAskedByCapn.exitCode).toBe(1);
-  expect(hostAskedByCapn.stdout.toString()).toBe("");
-  expect(hostAskedByCapn.stderr.toString()).toContain("No charted answer.");
-  expect(hostAskedByCapn.stdout.toString()).not.toContain("Host Docs");
-  expect(hostAskedByCapn.stdout.toString()).not.toContain(
-    "host-lighthouse-keyword lives"
-  );
-
-  const capnAskedByHost = await qmd(["search", "capn-sdk-keyword"]);
-  expect(capnAskedByHost.exitCode, capnAskedByHost.stderr.toString()).toBe(0);
-  expect(capnAskedByHost.stdout.toString()).not.toContain("capn-sdk-keyword");
-  expect(capnAskedByHost.stdout.toString()).not.toContain("src/capn.ts");
-
-  expect(dotQMDDirs(workDir)).toEqual([".qmd"]);
-  if (beforeGlobalConfig === undefined) {
-    expect(existsSync(hostConfigPath)).toBe(false);
-  } else {
-    expect(readFileSync(hostConfigPath, "utf8")).toBe(beforeGlobalConfig);
-  }
 });

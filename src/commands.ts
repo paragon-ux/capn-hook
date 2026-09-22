@@ -160,6 +160,19 @@ export async function ask(args: string[]) {
       miss(question);
       return;
     }
+    // Relative BM25 margin gate: when the top hit is barely distinguishable from
+    // the runner-up, the query is contextually ambiguous — fail closed instead of
+    // guessing. Off by default (CAPN_BM25_MIN_MARGIN unset / 0); enable with a
+    // positive threshold on the same 0..1 scale searchLex returns.
+    const minMargin = Number(process.env.CAPN_BM25_MIN_MARGIN ?? "0");
+    if (minMargin > 0) {
+      const top = found[0]?.score ?? 0;
+      const runnerUp = found[1]?.score ?? 0;
+      if (top - runnerUp < minMargin) {
+        miss(question);
+        return;
+      }
+    }
     for (const hit of found) {
       const score =
         hit.score <= 1 ? Math.round(hit.score * 100) : Math.round(hit.score);
