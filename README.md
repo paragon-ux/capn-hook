@@ -4,7 +4,7 @@
 
 Deterministic memory for coding agents. When your agent spends ten minutes figuring out where something lives in your codebase, capn saves the files that answer the question. The next session gets them back in one command instead of re-exploring — and the moment the underlying files change, the saved answer deletes itself.
 
-**This is a fork of [`CyrusNuevoDia/capn-hook`](https://github.com/CyrusNuevoDia/capn-hook) maintained by [paragon-ux](https://github.com/paragon-ux) with one hard change: recall is lexical-only (BM25/FTS5).** The upstream QMD hybrid path — embedding-model downloads (300MB–2GB), RRF fusion, non-deterministic scores — has been removed at the source, along with agent-hook installation (`capn init` no longer touches `.claude/`, `.codex/`, or git hooks). What remains is the same chart/ask surface, fully deterministic.
+**This is a fork of [`CyrusNuevoDia/capn-hook`](https://github.com/CyrusNuevoDia/capn-hook) maintained by [paragon-ux](https://github.com/paragon-ux) with one hard change: recall is lexical-only (BM25/FTS5), powered by an in-house SQLite FTS5 store instead of QMD.** The upstream QMD dependency — embedding-model downloads (300MB–2GB), RRF fusion, non-deterministic scores, and its native build chain — has been removed at the source, along with agent-hook installation (`capn init` no longer touches `.claude/`, `.codex/`, or git hooks). What remains is the same chart/ask surface, fully deterministic.
 
 ## The loop is three moves
 
@@ -36,14 +36,14 @@ npm install -g @paragon-ux/capn-hook
 bun install -g @paragon-ux/capn-hook
 
 cd /path/to/your/project
-capn init            # .capn/ storage + QMD BM25 index + .gitignore line (no hooks)
+capn init            # .capn/ storage + SQLite FTS5 index + .gitignore line (no hooks)
 ```
 
 ## Commands
 
 | Command | Description |
 | :--- | :--- |
-| `capn init` | Set up `.capn/`, the QMD BM25 index, and the `.capn/` gitignore line |
+| `capn init` | Set up `.capn/`, the SQLite FTS5 index, and the `.capn/` gitignore line |
 | `capn context` | Print the ask-first charting contract |
 | `capn ask "<question>"` | Print JSONL hits for relevant charted answers after pruning stale entries first |
 | `capn chart "<question>" --files <a,b> [--details "<extra context>"]` | Record a discovery, hashing each backing file |
@@ -77,7 +77,9 @@ Router starts near line 40; Stripe handler owns signature checks.
 - **The chart is disposable.** Any entry can be deleted at any time; the worst case is the agent re-explores.
 - **Deterministic recall.** BM25 lexical search only — no embedding models, no downloads, no GPU, stable scores run to run.
 - **No hooks.** capn is a CLI, not a harness plug-in. Agents call it; it never rewrites agent configuration.
-- **Local-first.** The QMD index runs in-process against `.capn/qmd/index.sqlite`. No daemon, no server.
+- **Local-first.** The FTS5 index runs in-process against `.capn/qmd/index.sqlite`
+  (better-sqlite3 under Node, bun:sqlite under Bun, node:sqlite fallback). No daemon,
+  no server, no native download at install.
 
 ## License
 
