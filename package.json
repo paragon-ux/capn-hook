@@ -22,7 +22,7 @@
     "test": "bun test --timeout 30000"
   },
   "type": "module",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Deterministic chart/ask memory for coding agents — lexical-only fork of capn-hook: BM25 recall, no embeddings, no hooks",
   "license": "MIT",
   "author": "paragon-ux (fork of CyrusNuevoDia/capn-hook)",
